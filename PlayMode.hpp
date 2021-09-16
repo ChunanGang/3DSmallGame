@@ -28,15 +28,17 @@ struct PlayMode : Mode {
 	Scene scene;
 
 	//hexapod leg to wobble:
-	Scene::Transform *hip = nullptr;
-	Scene::Transform *upper_leg = nullptr;
-	Scene::Transform *lower_leg = nullptr;
-	glm::quat hip_base_rotation;
-	glm::quat upper_leg_base_rotation;
-	glm::quat lower_leg_base_rotation;
+	Scene::Transform *mouse = nullptr;
+
+	glm::quat mouse_offset_rotation;
+	glm::quat mouse_move_roration = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 	float wobble = 0.0f;
 	
 	//camera:
 	Scene::Camera *camera = nullptr;
+
+	// game play
+	float ratateSpeed = 30.0f; // degree
+	float moveSpeed = 10.0f;
 
 };
