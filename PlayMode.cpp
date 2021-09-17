@@ -27,7 +27,6 @@ Load< Scene > hexapod_scene(LoadTagDefault, []() -> Scene const * {
 		Scene::Drawable &drawable = scene.drawables.back();
 
 		drawable.pipeline = lit_color_texture_program_pipeline;
-
 		drawable.pipeline.vao = hexapod_meshes_for_lit_color_texture_program;
 		drawable.pipeline.type = mesh.type;
 		drawable.pipeline.start = mesh.start;
@@ -37,25 +36,31 @@ Load< Scene > hexapod_scene(LoadTagDefault, []() -> Scene const * {
 });
 
 PlayMode::PlayMode() : scene(*hexapod_scene) {
-	//get pointers to leg for convenience:
+	carrots.reserve(28);
+	//get pointers for convenience:
 	for (auto &transform : scene.transforms) {
 		std::cout << "(" << transform.name <<  ")" << std::endl;
+		// mouse
 		if (transform.name == "water opossum ") mouse = &transform;
-		// else if (transform.name == "UpperLeg.FL") upper_leg = &transform;
-		// else if (transform.name == "LowerLeg.FL") lower_leg = &transform;
+		// carrots
+		else if (transform.name.find("carrot") !=std::string::npos){
+			carrots.push_back(&transform);
+		}
 	}
 	if (mouse == nullptr) { int a; std::cin>>a; throw std::runtime_error("Hip not found.");}
-	// if (upper_leg == nullptr) throw std::runtime_error("Upper leg not found.");
-	// if (lower_leg == nullptr) throw std::runtime_error("Lower leg not found.");
 
-	// hip_base_rotation = hip->rotation;
-	// upper_leg_base_rotation = upper_leg->rotation;
-	// lower_leg_base_rotation = lower_leg->rotation;
+	// set mouse offsets
 	mouse_offset_rotation = mouse->rotation;
+	mouse_offset_forward = mouse_offset_rotation * glm::vec4(glm::vec3(-1,0,0),0);
 
 	//get pointer to camera for convenience:
 	if (scene.cameras.size() != 1) throw std::runtime_error("Expecting scene to have exactly one camera, but it has " + std::to_string(scene.cameras.size()));
 	camera = &scene.cameras.front();
+
+	for(auto ct : carrots){
+		ct->position.y += 20;
+	}
+
 }
 
 PlayMode::~PlayMode() {
@@ -103,20 +108,7 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			SDL_SetRelativeMouseMode(SDL_TRUE);
 			return true;
 		}
-	} else if (evt.type == SDL_MOUSEMOTION) {
-		if (SDL_GetRelativeMouseMode() == SDL_TRUE) {
-			glm::vec2 motion = glm::vec2(
-				evt.motion.xrel / float(window_size.y),
-				-evt.motion.yrel / float(window_size.y)
-			);
-			camera->transform->rotation = glm::normalize(
-				camera->transform->rotation
-				* glm::angleAxis(-motion.x * camera->fovy, glm::vec3(0.0f, 1.0f, 0.0f))
-				* glm::angleAxis(motion.y * camera->fovy, glm::vec3(1.0f, 0.0f, 0.0f))
-			);
-			return true;
-		}
-	}
+	} 
 
 	return false;
 }
@@ -131,20 +123,17 @@ void PlayMode::update(float elapsed) {
 	if (!down.pressed && up.pressed) move.y = 1.0f;
 
 	// update left/right rotation from key A and D
-	std::cout << glm::radians(elapsed * ratateSpeed * move.x) << "\n";
 	mouse_move_roration = glm::angleAxis(
 		glm::radians(elapsed * ratateSpeed * move.x),
-		glm::vec3(0,0,1)) * mouse_move_roration;
+		glm::vec3(0,0,-1)) * mouse_move_roration;
 	// combine rotation from offset and from player control 
-	mouse->rotation = glm::angleAxis(
-		1.0f,
-		glm::vec3(0,0,1)) * mouse_offset_rotation;
+	mouse->rotation = mouse_move_roration * mouse_offset_rotation;
 
 	// move forward/backward from key W and S
 	//make it so that moving diagonally doesn't go faster:
 	if (move != glm::vec2(0.0f)) move = glm::normalize(move) * moveSpeed * elapsed;
 	// calculate forward from the player-control rotation
-	glm::vec3 forward = mouse_move_roration * glm::vec4(glm::vec3(-1,0,0),0);
+	glm::vec3 forward = mouse_move_roration * mouse_offset_forward;
 	mouse->position += move.y * forward;
 
 	//reset button press counters:

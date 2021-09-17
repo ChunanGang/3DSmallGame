@@ -27,10 +27,13 @@ struct PlayMode : Mode {
 	//local copy of the game scene (so code can change it during gameplay):
 	Scene scene;
 
-	//hexapod leg to wobble:
+	// transform pointers
 	Scene::Transform *mouse = nullptr;
+	std::vector<Scene::Transform *> carrots; 
 
+	// transform infos
 	glm::quat mouse_offset_rotation;
+	glm::vec3 mouse_offset_forward;
 	glm::quat mouse_move_roration = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 	float wobble = 0.0f;
 	
@@ -38,7 +41,7 @@ struct PlayMode : Mode {
 	Scene::Camera *camera = nullptr;
 
 	// game play
-	float ratateSpeed = 30.0f; // degree
-	float moveSpeed = 10.0f;
+	float ratateSpeed = 90.0f; // degree
+	float moveSpeed = 30.0f;
 
 };
