@@ -106,7 +106,8 @@ LitColorTextureProgram::LitColorTextureProgram() {
 		"	}\n"
 		"	vec4 albedo = texture(TEX, texCoord) * color;\n"
 		"	fragColor = vec4(e*albedo.rgb, albedo.a);\n"
-		"   fragColor = vec4(COLOR_MODIFIER + fragColor.rgb, 1);\n"
+		"	if (COLOR_MODIFIER != vec3(0))\n"
+		"   	fragColor = vec4(COLOR_MODIFIER + fragColor.rgb + n.rgb/2.0, 1);\n"
 		"}\n"
 	);
 	//As you can see above, adjacent strings in C/C++ are concatenated.
