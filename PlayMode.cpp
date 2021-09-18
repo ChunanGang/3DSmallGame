@@ -39,14 +39,18 @@ PlayMode::PlayMode() : scene(*hexapod_scene) {
 	carrots.reserve(28);
 	//get pointers for convenience:
 	for (auto &transform : scene.transforms) {
-		std::cout << "(" << transform.name <<  ")" << std::endl;
+		//std::cout << "(" << transform.name <<  ")" << std::endl;
 		// mouse
 		if (transform.name == "water opossum ") mouse = &transform;
 		// carrots
 		else if (transform.name.find("carrot") !=std::string::npos){
 			carrots.push_back(&transform);
 		}
+		else if (transform.name.find("cabbage.005") !=std::string::npos){
+			transform.position.z = 5000;
+		}
 	}
+	currotOriginalHeight = carrots[0]->position.y;
 	if (mouse == nullptr) { int a; std::cin>>a; throw std::runtime_error("Hip not found.");}
 
 	// set mouse offsets
@@ -57,9 +61,9 @@ PlayMode::PlayMode() : scene(*hexapod_scene) {
 	if (scene.cameras.size() != 1) throw std::runtime_error("Expecting scene to have exactly one camera, but it has " + std::to_string(scene.cameras.size()));
 	camera = &scene.cameras.front();
 
-	for(auto ct : carrots){
-		ct->position.y += 20;
-	}
+	// disable mouse
+	if (SDL_GetRelativeMouseMode() == SDL_FALSE) 
+		SDL_SetRelativeMouseMode(SDL_TRUE);
 
 }
 
@@ -87,6 +91,8 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 		} else if (evt.key.keysym.sym == SDLK_s) {
 			down.downs += 1;
 			down.pressed = true;
+			// ever moving backward will leak the chemical poison into your stomach. then you will die at the end :)
+			winning = false;
 			return true;
 		}
 	} else if (evt.type == SDL_KEYUP) {
@@ -103,18 +109,140 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			down.pressed = false;
 			return true;
 		}
-	} else if (evt.type == SDL_MOUSEBUTTONDOWN) {
-		if (SDL_GetRelativeMouseMode() == SDL_FALSE) {
-			SDL_SetRelativeMouseMode(SDL_TRUE);
-			return true;
-		}
 	} 
+
+	// left click
+	if(evt.type == SDL_MOUSEBUTTONDOWN)
+		if (evt.button.button == SDL_BUTTON_LEFT)
+			mouse_left = true;		
+	if(evt.type == SDL_MOUSEBUTTONUP)
+		if (evt.button.button == SDL_BUTTON_LEFT) 
+			mouse_left = false;
 
 	return false;
 }
 
+void PlayMode::checkCarrotIndex(){
+	// if no current carrot, pick one and start rise
+	if (curCarrotIndex == 30){
+		// rejection sampling
+		while(curCarrotIndex == 30){
+			curCarrotIndex = rand() % 28;
+			if(collected[curCarrotIndex])
+				curCarrotIndex = 30;
+		}
+		carrotRising = true;
+		curCarrotRiseAmount = 0;
+	}
+}
+
+void PlayMode::riseCarrot(float elapsed){
+	// not high enough
+	if(curCarrotRiseAmount <= carrotRiseAmountMax){
+		curCarrotRiseAmount += elapsed * carrotRiseSpeed;
+		carrots[curCarrotIndex]->position.y = currotOriginalHeight + curCarrotRiseAmount;
+		// add a flashing color effect when rising
+		std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
+		auto duration = now.time_since_epoch();
+		auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+		// flash
+		if (millis % (carrot_flash_interval*2) > carrot_flash_interval)
+			carrots[curCarrotIndex]->colorModifier = glm::vec3(0.3f,0,0);
+		else
+			carrots[curCarrotIndex]->colorModifier = glm::vec3(0,0.3f,0);
+	}
+	// rised to position
+	else {
+		carrotRising = false;
+		// set color modifier
+		carrots[curCarrotIndex]->colorModifier = glm::vec3(0.5,0.5,0);
+	}
+}
+
+void PlayMode::collectCarrot(uint16_t index){
+	// set carrots invisible
+	carrots[index]->position.z = 5000;
+	// set as colected
+	collected[index] = true;
+	// speed up
+	if (changeSpeedFactor < 10){
+		changeSpeedFactor += 1;	// color change faster
+		moveSpeed += 8;
+		ratateSpeed += 8;
+	}
+	// reset values
+	curCarrotIndex = 30;
+}
+
+bool PlayMode::gameOver(){
+	for (size_t i =0; i <carrots.size(); i++){
+		if(!collected[i])
+			return false;
+	}
+	return true;
+}
+
+void PlayMode::playEndGameAnim(float elapsed){
+	bool startFall=false;
+	// first scale up
+	float scaleSpeed = 3;
+	float scaleMax = 6;
+	if(mouse->scale.x < scaleMax){
+		mouse->scale.x += scaleSpeed * elapsed;
+		mouse->scale.y += scaleSpeed * elapsed;
+		mouse->scale.z += scaleSpeed * elapsed;
+	}
+	else{
+		if(! winning)
+			startFall = true;
+		else
+			displayGameOverText = 2;
+	}
+	// then fall down
+	if(startFall){
+		static float rotatedAmount = 0;
+		float rotateSpeed = 50;
+		if(rotatedAmount < 90){
+			rotatedAmount += elapsed * rotateSpeed;
+			auto fall_roration = glm::angleAxis(
+				glm::radians(rotatedAmount),
+				glm::vec3(0,1,0));
+			// combine rotation from offset and from player control 
+			mouse->rotation = fall_roration * mouse_move_roration * mouse_offset_rotation;
+		}
+		// done with rotation, display game over text
+		else
+			displayGameOverText = 1;
+	}
+}
+
 void PlayMode::update(float elapsed) {
 
+	// --------- mouse color effect ------- //
+	if(changeSpeedFactor == 0)
+		mouse->colorModifier = glm::vec3(0);
+	else{
+		mouse_color_modifier += elapsed /10 * changeSpeedFactor;
+		mouse_color_modifier -= std::floor(mouse_color_modifier);
+		mouse->colorModifier = glm::vec3(
+			std::min(255,std::max(0,int32_t(255 * 0.5f * (0.5f + std::sin( 2.0f * M_PI * (mouse_color_modifier + 0.0f / 3.0f) ) ) ))) /255.0f,
+			std::min(255,std::max(0,int32_t(255 * 0.5f * (0.5f + std::sin( 2.0f * M_PI * (mouse_color_modifier + 1.0f / 3.0f) ) ) ))) /255.0f,
+			std::min(255,std::max(0,int32_t(255 * 0.5f * (0.5f + std::sin( 2.0f * M_PI * (mouse_color_modifier + 2.0f / 3.0f) ) ) ))) /255.0f
+		);
+	}
+
+	// check if game over
+	if(gameOver()){
+		playEndGameAnim(elapsed);
+		return;
+	}
+
+	// ---------- carrots ------------- //
+	checkCarrotIndex();
+	// rise carrot
+	riseCarrot(elapsed);
+
+	// ---------- movement -------------- //
 	//combine inputs into a move:
 	glm::vec2 move = glm::vec2(0.0f);
 	if (left.pressed && !right.pressed) move.x =-1.0f;
@@ -135,12 +263,42 @@ void PlayMode::update(float elapsed) {
 	// calculate forward from the player-control rotation
 	glm::vec3 forward = mouse_move_roration * mouse_offset_forward;
 	mouse->position += move.y * forward;
+	//std::cout << mouse->position.x<< ", " << mouse->position.y<< ", " <<  mouse->position.z<< ", " << std::endl;
+	
+	// clamp mousepos
+	mouse->position.x = std::min(mouse->position.x, mousePosMax.x); 
+	mouse->position.x = std::max(mouse->position.x, mousePosMin.x); 
+	mouse->position.y = std::min(mouse->position.y, mousePosMax.y); 
+	mouse->position.y = std::max(mouse->position.y, mousePosMin.y); 
 
 	//reset button press counters:
 	left.downs = 0;
 	right.downs = 0;
 	up.downs = 0;
 	down.downs = 0;
+
+	// --------- pick up carrot ----------- //
+	popClickHint = false;
+	if (curCarrotIndex != 30 && !carrotRising){
+		// get the world position of mouse and carrot
+		auto mouseWorldMat = mouse->make_local_to_world();
+		glm::vec3 mouseWorldPos(mouseWorldMat[3][0], mouseWorldMat[3][1],mouseWorldMat[3][2]);
+		auto carrotWorldMat = carrots[curCarrotIndex]->make_local_to_world();
+		glm::vec3 carrotWorldPos(carrotWorldMat[3][0], carrotWorldMat[3][1],carrotWorldMat[3][2]);
+		//std::cout << "mouse: " << mouseWorldPos.x<< ", cr: " << carrotWorldPos.x <<std::endl;
+		// check if in range
+		if (abs(mouseWorldPos.x - carrotWorldPos.x) < 25 &&
+			abs(mouseWorldPos.y - carrotWorldPos.y) < 25)
+		{
+			// change carrot color
+			carrots[curCarrotIndex]->colorModifier = glm::vec3(0.6,0.0f,0.3f);
+			popClickHint = true;
+			// check for pick up input
+			if (mouse_left){
+				collectCarrot(curCarrotIndex);
+			}
+		}
+	}
 }
 
 void PlayMode::draw(glm::uvec2 const &drawable_size) {
@@ -177,14 +335,31 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 		));
 
 		constexpr float H = 0.09f;
-		lines.draw_text("Mouse motion rotates camera; WASD moves; escape ungrabs mouse",
+		lines.draw_text("WASD moves; escape ungrabs mouse",
 			glm::vec3(-aspect + 0.1f * H, -1.0 + 0.1f * H, 0.0),
 			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
 			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
-		float ofs = 2.0f / drawable_size.y;
-		lines.draw_text("Mouse motion rotates camera; WASD moves; escape ungrabs mouse",
-			glm::vec3(-aspect + 0.1f * H + ofs, -1.0 + + 0.1f * H + ofs, 0.0),
-			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
-			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+		
+		if(popClickHint && displayGameOverText == 0){
+			lines.draw_text("LEFT CLICK",
+				glm::vec3(-aspect + 0.1f * H , -1.0 + 0.1f * H + 0.2f, 0.0),
+				glm::vec3(0.5f, 0.0f, 0.0f), glm::vec3(0.0f, 0.5f, 0.0f),
+				glm::u8vec4(0xff, 0xff, 0x00, 0x00));
+		}
+
+		// game over text
+		// lose
+		if(displayGameOverText == 1)
+			lines.draw_text("YOU DIE FROM CHEMICAL POISON",
+				glm::vec3(-aspect + 0.1f * H , -1.0 + 0.1f * H + 0.8f, 0.0),
+				glm::vec3(0.32f, 0.0f, 0.0f), glm::vec3(0.0f, 0.32f, 0.0f),
+				glm::u8vec4(0xff, 0x00, 0x00, 0x00));
+		// win
+		else if (displayGameOverText == 2)
+			lines.draw_text("YOU BECOME SUPER CHEMICAL MOUSE",
+				glm::vec3(-aspect + 0.1f * H , -1.0 + 0.1f * H + 0.8f, 0.0),
+				glm::vec3(0.3f, 0.0f, 0.0f), glm::vec3(0.0f, 0.32f, 0.0f),
+				glm::u8vec4(0x00, 0x00, 0xff, 0x00));
+
 	}
 }
